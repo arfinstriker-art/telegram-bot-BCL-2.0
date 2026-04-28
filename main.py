@@ -1,139 +1,136 @@
-import os
-import logging
-from collections import defaultdict
-from dotenv import load_dotenv
-from telegram import Update
-from telegram.ext import (
-    ApplicationBuilder, CommandHandler, MessageHandler,
-    filters, ContextTypes
-)
+import telebot
 from openai import OpenAI
-import time
 
-# 🔐 Load ENV
-load_dotenv()
+# ================= কনফিগারেশন =================
+TELEGRAM_BOT_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"
+HF_TOKEN = "YOUR_HF_TOKEN" # এখানে তোমার Hugging Face Token বসাও
+CHANNEL_USERNAME = "@BCL_Cyber_Legion"
+CEO_CONTACT = "@striker_arfin104"
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-OWNER_ID = 7951276025
+# বট ইনিশিয়ালাইজেশন
+bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
 
-CHANNEL = "@BCL_Cyber_Legion"
-
-client = OpenAI(api_key=OPENAI_API_KEY)
-
-# 🧠 Personality
-SYSTEM_PROMPT = "You are a funny savage Bangla AI 😎🔥"
-
-# 🚫 Bad words
-BAD_WORDS = ["bal", "fuck", "madar", "chod"]
-
-# 🤖 Auto replies
-AUTO_REPLY = {
-    "hi": "কি খবর 😏",
-    "hello": "ওই 😎",
-    "kire": "বল ভাই 😏",
-    "help": "👉 /contact use কর",
-}
-
-# 📊 Logging
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO
+# Hugging Face Router দিয়ে OpenAI ক্লায়েন্ট সেটআপ 🚀
+client = OpenAI(
+    base_url="https://router.huggingface.co/v1",
+    api_key=HF_TOKEN
 )
 
-# ⏱ Rate limit (anti spam)
-user_last_message = defaultdict(float)
+# খারাপ শব্দের তালিকা
+BAD_WORDS =['bal', 'fuck', 'madar', 'chod']
 
-# 🧠 Memory (last 5 messages)
-user_memory = defaultdict(list)
+# AI System Prompt
+SYSTEM_PROMPT = """You are BCL AI Bot 😎🔥, a smart, funny, and slightly savage Bangla-speaking assistant.
+- Speak in Bangla (casual, text style like: ki obostha, kemon aso or direct bangla font).
+- You are funny, witty, and have a slightly savage attitude 😏
+- Be friendly but highly confident.
+- Keep replies short, punchy, and use emojis like 😎, 🔥, 😏.
+- মাঝে মাঝে roasting allowed but not harmful."""
 
-# ✅ Join check
-async def is_joined(bot, user_id):
+# ================= হেল্পার ফাংশন =================
+
+def is_user_subscribed(user_id):
+    """চেক করবে ইউজার চ্যানেলে জয়েন করেছে কি না"""
     try:
-        member = await bot.get_chat_member(CHANNEL, user_id)
-        return member.status in ["member", "administrator", "creator"]
-    except:
+        status = bot.get_chat_member(CHANNEL_USERNAME, user_id).status
+        if status in['member', 'administrator', 'creator']:
+            return True
+        return False
+    except Exception as e:
+        print(f"Channel Check Error: {e}")
         return False
 
-# 🚀 START
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not await is_joined(context.bot, update.effective_user.id):
-        await update.message.reply_text("🔒 আগে join কর 😏\n👉 https://t.me/BCL_Cyber_Legion")
-        return
-
-    await update.message.reply_text(
-        "😎 BCL AI BOT Ready 🔥\n\n"
-        "💬 Smart Chat | 😂 Fun | 🧠 Memory\n"
-        "👉 /contact for help"
-    )
-
-# 📞 CONTACT
-async def contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("📞 Contact 👉 @striker_arfin104 😎")
-
-# 👑 ADMIN ONLY
-async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != OWNER_ID:
-        return
-
-    total_users = len(user_memory)
-    await update.message.reply_text(f"📊 Total Users: {total_users}")
-
-# 💬 MAIN AI
-async def reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    msg = update.message.text.lower()
-
-    # 🔒 Join check
-    if not await is_joined(context.bot, user_id):
-        await update.message.reply_text("🔒 আগে join কর 😏")
-        return
-
-    # ⏱ Rate limit (3 sec)
-    if time.time() - user_last_message[user_id] < 3:
-        await update.message.reply_text("⏳ ধীরে ভাই 😏")
-        return
-    user_last_message[user_id] = time.time()
-
-    # 🚫 Bad word
+def contains_bad_words(text):
+    """চেক করবে টেক্সটে কোনো খারাপ শব্দ আছে কি না"""
+    text_lower = text.lower()
     for word in BAD_WORDS:
-        if word in msg:
-            await update.message.reply_text("😡 মুখ সামলে কথা বল!")
-            return
+        if word in text_lower:
+            return True
+    return False
 
-    # 🤖 Auto reply
-    if msg in AUTO_REPLY:
-        await update.message.reply_text(AUTO_REPLY[msg])
+# ================= কমান্ড হ্যান্ডলার =================
+
+@bot.message_handler(commands=['start'])
+def send_welcome(message):
+    user_id = message.from_user.id
+    
+    if not is_user_subscribed(user_id):
+        bot.reply_to(message, f"আগে আমাদের চ্যানেলে জয়েন কর, তারপর কথা হবে! 😏\nলিংক: https://t.me/BCL_Cyber_Legion")
         return
 
-    # 🧠 Memory add
-    user_memory[user_id].append({"role": "user", "content": msg})
-    user_memory[user_id] = user_memory[user_id][-5:]
+    welcome_msg = (
+        "স্বাগতম! আমি **BCL AI Bot** 😎🔥\n\n"
+        "আমার ফিচারসমূহ:\n"
+        "💬 **Smart Chat:** আমার সাথে যেকোনো বিষয় নিয়ে আড্ডা দিতে পারো।\n"
+        "🤣 **Fun & Roast:** একটু ফান আর স্যাভেজ রিপ্লাইয়ের জন্য রেডি থেকো।\n"
+        "📞 **Help:** কোনো দরকার হলে /contact ইউজ কর।\n\n"
+        "বলো, কী জানতে চাও? 😏"
+    )
+    bot.reply_to(message, welcome_msg, parse_mode="Markdown")
 
+@bot.message_handler(commands=['contact'])
+def send_contact(message):
+    user_id = message.from_user.id
+    
+    if not is_user_subscribed(user_id):
+        bot.reply_to(message, f"আগে আমাদের চ্যানেলে জয়েন কর, তারপর কথা হবে! 😏\nলিংক: https://t.me/BCL_Cyber_Legion")
+        return
+
+    bot.reply_to(message, f"👉 আমাদের Admin/CEO এর সাথে যোগাযোগ করতে পারো: {ADMIN_CONTACT} 😎")
+
+# ================= টেক্সট মেসেজ হ্যান্ডলার =================
+
+@bot.message_handler(func=lambda message: True)
+def handle_all_messages(message):
+    user_id = message.from_user.id
+    text = message.text.strip().lower()
+
+    # ১. সাবস্ক্রিপশন চেক
+    if not is_user_subscribed(user_id):
+        bot.reply_to(message, f"আগে আমাদের চ্যানেলে জয়েন কর, তারপর কথা হবে! 😏\nলিংক: https://t.me/BCL_Cyber_Legion")
+        return
+
+    # ২. ব্যাড ওয়ার্ড ফিল্টার 🚫
+    if contains_bad_words(text):
+        bot.reply_to(message, "😡 মুখ সামলে কথা বল!")
+        return
+
+    # ৩. অটো রিপ্লাই সিস্টেম
+    if text == "hi":
+        bot.reply_to(message, "কি খবর 😏")
+        return
+    elif text == "hello":
+        bot.reply_to(message, "ওই 😎")
+        return
+    elif text in ["kire", "ki re"]:
+        bot.reply_to(message, "বল ভাই 😏")
+        return
+    elif text == "help":
+        bot.reply_to(message, "👉 /contact use কর")
+        return
+
+    # ৪. AI Chat System 🧠 (DeepSeek Model Via Hugging Face)
+    bot.send_chat_action(message.chat.id, 'typing')
+    
     try:
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "system", "content": SYSTEM_PROMPT}] + user_memory[user_id]
+            model="deepseek-ai/DeepSeek-V4-Pro:novita", # তোমার দেওয়া মডেল
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": message.text}
+            ],
+            max_tokens=250, # DeepSeek এর জন্য রেসপন্স সাইজ একটু বাড়িয়ে দিলাম
+            temperature=0.8
         )
-
-        reply_text = response.choices[0].message.content
-
-        # Save bot reply
-        user_memory[user_id].append({"role": "assistant", "content": reply_text})
-
-        await update.message.reply_text(reply_text)
-
+        ai_reply = response.choices[0].message.content
+        bot.reply_to(message, ai_reply)
+        
     except Exception as e:
-        logging.error(e)
-        await update.message.reply_text("😏 AI নাই তো কি হইছে, আমি আছি!")
+        # ৫. Fallback System 🔥
+        print(f"AI Error: {e}")
+        bot.reply_to(message, "😏 AI নাই তো কি হইছে, আমি আছি!")
 
-# ▶️ RUN
-app = ApplicationBuilder().token(BOT_TOKEN).build()
-
-app.add_handler(CommandHandler("start", start))
-app.add_handler(CommandHandler("contact", contact))
-app.add_handler(CommandHandler("stats", stats))
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, reply))
-
-print("🔥 Advanced Bot Running 😎")
-app.run_polling()
+# ================= বট চালু করা =================
+if __name__ == "__main__":
+    print("BCL AI Bot (DeepSeek Powered) is running... 😎🔥")
+    bot.infinity_polling()
